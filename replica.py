@@ -21,6 +21,9 @@ def get_message(topic, message):
     ## PREPARE PHASE
     if topic == global_const.topicPrefix + "/prepare":
         print("Prepare message received from a different Node: "+str(message))
+        list_of_prepare_certs = []
+        if(len(list_of_prepare_certs)==3):
+            print("Going to commit.")
 
 def init_replica(replica_id):
     global REPLICA_NUMBER
