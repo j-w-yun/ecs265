@@ -32,9 +32,8 @@ global_const.mqttStuff.connect("mqtt.eclipseprojects.io", 1883, 60)
 # handles reconnecting.
 # Other loop*() functions are available that give a threaded interface and a
 # manual interface.
-print("Please enter the type of node\nYour options are:\nP: Primary\nR1: Replica 1\nR2: Replica 2\nR3: Replica 3")
+print("Please enter the node number 0-3")
 node = str(input())
-if node.startswith("R"):
-    replica.init_replica(int(node[-1:]))
+replica.init_replica(int(node))
 
 global_const.mqttStuff.loop_forever()
