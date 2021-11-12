@@ -1,15 +1,21 @@
-import paho.mqtt.client as mqtt
 import json
+import string
 
-MQTT_SERVER_ADDR = "localhost"
-MQTT_SERVER_PORT = 1883
+import paho.mqtt.client as mqtt
+
+from global_const import *
 
 
 class Replica:
-    def __init__(self, role='r', id=1, current_seq=0) -> None:
-        self.role = role
+    def __init__(self, role='r', replica_id=1, current_seq=0) -> None:
+        self.role = Role.PRIMARY if role == 'p' else Role.REPLICA
         self.current_seq = current_seq
-        self.id = id
+        self.id = replica_id
+
+        self.current_seq = current_seq
+        self.current_phase = ConsensusPhase.IDLE
+        self.prepare_cache = []
+        self.commit_cache = []
 
         # MQTT client setup
         self.mqtt_client = mqtt.Client()
@@ -18,73 +24,90 @@ class Replica:
         self.mqtt_client.connect(MQTT_SERVER_ADDR, MQTT_SERVER_PORT, 60)
         self.mqtt_client.loop_forever()
 
-        self.current_seq = current_seq
-        self.prepare_cache = []
-        self.precommit_cache = []
-        self.commit_cache = []
-
     def on_connect(self, client, userdata, flag, rc):
         print("Connected to MQTT server.")
-        self.mqtt_client.subscribe('bft/terminal')
-        self.mqtt_client.publish('bft/terminal', "I'm here")
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'terminal')
+        self.broadcast_msg('terminal', "I'm here")
 
-        if self.role == 'p':
-            self.mqtt_client.subscribe('bft/client_req')
-            self.mqtt_client.message_callback_add('bft/client_req', self.on_client_message)
+        if self.role == Role.PRIMARY:
+            self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'client_req')
+            self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'client_req', self.on_client_message)
 
-        
-        self.mqtt_client.subscribe('bft/prepare')
-        self.mqtt_client.message_callback_add('bft/prepare', self.on_prepare_message)
-        self.mqtt_client.subscribe('bft/precommit')
-        self.mqtt_client.message_callback_add('bft/precommit', self.on_precommit_message)
-        self.mqtt_client.subscribe('bft/commit')
-        self.mqtt_client.message_callback_add('bft/commit', self.on_commit_message)
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'pre-prepare')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'pre-prepare', self.on_pre_prepare_message)
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'prepare')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'prepare', self.on_prepare_message)
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'commit')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'commit', self.on_commit_message)
 
     def on_message(self, client, usr_data, msg):
-        print(msg.payload)
+        pass
 
     def on_client_message(self, client, usr_data, msg):
-        self.mqtt_client.publish('bft/prepare', self.construct_msg("Proposal from primary"))
+        self.current_phase = ConsensusPhase.PRE_PREPARE
+        self.current_seq += 1
+        self.broadcast_msg('pre-prepare', 'Proposal from primary')
+
+    def on_pre_prepare_message(self, client, usr_data, msg):
+        msg = self.validate_msg(msg)
+        if msg and self.role == Role.REPLICA and msg['role'] == Role.PRIMARY.value and self.current_phase == ConsensusPhase.IDLE: 
+                if msg['current_seq'] > self.current_seq:
+                    self.current_seq = msg['current_seq']
+                    self.current_phase = ConsensusPhase.PRE_PREPARE
+                    self.broadcast_msg('prepare', 'Vote for prepare certificate')
 
     def on_prepare_message(self, client, usr_data, msg):
-        self.prepare_cache.append(msg.payload)
-        
-        if len(self.prepare_cache) > 3:
-            self.mqtt_client.publish('bft/precommit', self.construct_msg("vote for precommit"))
+        msg = self.validate_msg(msg)
+        if msg and msg['current_seq'] == self.current_seq and self.current_phase == ConsensusPhase.PRE_PREPARE:
+            self.prepare_cache.append(msg)
 
-    def on_precommit_message(self, client, usr_data, msg):
-        self.precommit_cache.append(msg)
-
-        if len(self.precommit_cache) > 3:
-            self.mqtt_client.publish('bft/commit', self.construct_msg("vote for commit"))
+            if len(self.prepare_cache) + self.role.value > 2 * FAULT_TOLERANCE:
+                self.prepare_cache.clear()
+                self.current_phase = ConsensusPhase.COMMIT
+                self.broadcast_msg('commit', 'Vote for commit')
 
     def on_commit_message(self, client, usr_data, msg):
-        self.commit_cache.append(msg)
+        msg = self.validate_msg(msg)
+        if msg and msg['current_seq'] == self.current_seq and self.current_phase == ConsensusPhase.COMMIT:
+            self.commit_cache.append(msg)
 
-        if len(self.commit_cache) > 3:
-            self.execute()
+            if len(self.commit_cache) > 2 * FAULT_TOLERANCE:
+                result  = self.execute()
+                if result:
+                    self.commit_cache.clear()
+                    self.current_phase = ConsensusPhase.IDLE
+                    self.broadcast_msg('client', 'Request executed')
 
     def validate_msg(self, msg) -> bool:
         try:
-            msg = eval(msg)
-            if msg['sequence_num'] == self.current_seq:
-                return True
+            msg = json.loads(msg.payload)
+            return msg
         except:
-            return False # Message corrupted
+            return
 
-    def execute(self):
-        pass
+    def execute(self) -> bool:
+        return True
 
-    def construct_msg(self, content):
+    def construct_msg(self, content) -> string:
         msg = {}
-        msg['replica_id'] = self.id
-        msg['sequence_num'] = self.current_seq
-        msg['content'] = content
+        msg['id'] = self.id
+        msg['role'] = self.role.value
+        msg['current_seq'] = self.current_seq
+        msg['current_phase'] = self.current_phase.value
+
+        if isinstance(content, dict):
+            for key, value in content.items():
+                msg[key] = value
+        else:
+            msg['meta'] = str(content)
+
         return json.dumps(msg)
 
 
+    def broadcast_msg(self, topic, msg):
+        msg = self.construct_msg(msg)
+        self.mqtt_client.publish(MQTT_TOPIC_PREFIX + topic, msg)
+
+
 if __name__ == '__main__':
-    primary = Replica('p', 1)
-    clients = []
-    for i in range(2, 5):
-        clients.append(Replica('r', i))
+    primary = Replica('r', 4)
