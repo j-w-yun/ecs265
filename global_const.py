@@ -5,7 +5,10 @@ MQTT_SERVER_ADDR = 'test.mosquitto.org'
 MQTT_SERVER_PORT = 1883
 MQTT_TOPIC_PREFIX = 'ecs265/pbft/'
 
+NODE_TOTAL_NUMBER = 4
 FAULT_TOLERANCE = 1
+
+MSG_DIGEST_KEYS = ['i', 'n', 'v', 'd']
 
 class ConsensusPhase(Enum):
     IDLE = 0
