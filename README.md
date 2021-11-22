@@ -49,5 +49,3 @@ As messages with different types are sent into different topics, there is no nee
 
 * digest generation function
 * MAC generation function
-* Currently the replica cannot reject a request with a timestamp older than a former request
-* Current log is just a list and can be changed to dict according to the need of view change
