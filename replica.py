@@ -1,17 +1,44 @@
 import sys
 import json
 import string
+from threading import Thread,Event,Timer
 
 import paho.mqtt.client as mqtt
 
 from global_const import *
 
+class WaitTimer:
+    def __init__(self,function):
+        Thread.__init__(self)
+        self.interval = 60
+        self.function = function
+        self.finished = Event()
+        self.resetted = True
+
+    def cancel(self):
+        self.finished.set()
+
+    def run(self):
+        while self.resetted:
+            self.resetted = False
+            self.finished.wait(self.interval)
+        if not self.finished.isSet():
+            self.function()
+        self.finished.set()
+
+    def reset(self):
+        self.resetted = True
+        self.finished.set()
+        self.finished.clear()
 
 class Replica:
     def __init__(self, replica_id=0, current_seq=0, current_view=0) -> None:        
         self.id = replica_id
         self.current_seq = current_seq
         self.current_view = current_view
+        self.state = State.READY
+        self.timer = WaitTimer(self.init_view_change)
+        self.requests = 0
 
         self.update_role()
 
@@ -68,8 +95,18 @@ class Replica:
                 self.log[self.current_seq]['pre-prepare'][self.id] = pre_prepare_msg
 
                 self.broadcast_msg('pre-prepare', pre_prepare_msg)
+                self.requests += 1
+        else: # Get into Waiting state
+            if self.state == State.READY:
+                self.state == State.WAITING
+                self.timer.run()                
 
     def on_pre_prepare_message(self, client, usr_data, msg):
+        if self.state == State.CHANGING:
+            return
+        if self.state == State.WAITING:
+            self.timer.reset()
+            self.timer.run()
         if self.role == Role.REPLICA:
             pre_prepare_msg = self.validate_proposal(msg)
             if pre_prepare_msg and self.current_phase == ConsensusPhase.IDLE:
@@ -96,10 +133,13 @@ class Replica:
                 # Construct and broadcast the prepare message
                 prepare_msg = self.construct_msg()
                 self.broadcast_msg('prepare', prepare_msg)
+                self.requests += 1
         else:
             self.current_phase = ConsensusPhase.PREPARE
 
     def on_prepare_message(self, client, usr_data, msg):
+        if self.state == State.CHANGING:
+            return
         prepare_msg = self.validate_msg(msg)
         if prepare_msg and self.current_phase == ConsensusPhase.PREPARE:
             # Append prepare message to log
@@ -114,7 +154,12 @@ class Replica:
                 self.broadcast_msg('commit', commit_msg)
 
     def on_commit_message(self, client, usr_data, msg):
+        if self.state == State.CHANGING:
+            return
         commit_msg = self.validate_msg(msg)
+        if commit_msg['i'] == self.current_view:
+            self.timer.reset()
+            self.timer.run()
         if commit_msg and self.current_phase == ConsensusPhase.COMMIT:
             # Append commit message to log
             self.log[self.current_seq]['commit'][commit_msg['i']] = msg.payload.decode('utf-8')
@@ -134,6 +179,9 @@ class Replica:
     def execute(self, operation) -> bool:
         with open('log_sample/log_{}.json'.format(self.id), 'w', encoding='utf-8') as fw:
             json.dump(self.log, fw)
+        self.requests -= 1
+        if self.requests == 0:
+            self.state = State.READY
         return True
 
     def broadcast_msg(self, topic, msg):
@@ -213,6 +261,12 @@ class Replica:
 
     def update_role(self): # Can be used in view change to update a replica's role
         self.role = Role.PRIMARY if self.id == self.current_view % NODE_TOTAL_NUMBER else Role.REPLICA
+
+    def init_view_change():
+        if self.state == State.WAITING:
+            self.state = State.CHANGING
+            self.current_phase = ConsensusPhase.VIEWCHANGE
+            # send view-change message
 
 if __name__ == '__main__':
     primary = Replica(eval(sys.argv[1]))

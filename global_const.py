@@ -16,7 +16,13 @@ class ConsensusPhase(Enum):
     PREPARE = 2
     COMMIT = 3
     VIEWCHANGE = 4
+    NEW_VIEW = 5
 
 class Role(Enum):
     REPLICA = 0
     PRIMARY = 1
+    
+class State(Enum):
+    READY = 0
+    WAITING = 1
+    CHANGING = 2
