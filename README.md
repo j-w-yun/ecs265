@@ -46,6 +46,5 @@ As messages with different types are sent into different topics, there is no nee
   * r: execution result
 
 ## TODO
-
-* digest generation function
-* MAC generation function
+  * Code review for timer and state lock
+  * Code review for digest and MAC generation function
