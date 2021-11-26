@@ -2,6 +2,7 @@ import sys
 import json
 import string
 from threading import Thread,Event,Timer
+import hashlib 
 
 import paho.mqtt.client as mqtt
 
@@ -252,12 +253,25 @@ class Replica:
         return json.dumps(msg)
 
     def get_digest(self, content) -> string:
-        # TODO
+        # Encoding content using md5 hash
+        content = hashlib.md5(content.encode())
+        # Return as a str object
+        content = content.hexdigest()
         return content
-
+        # In case of using only the 10 least bytes as the paper did, comment out previous line, and uncomment following one
+        # return content[:10]
+       
     def get_mac(self, msg, key) -> string:
-        # TODO
+        # mac = md5(msg, key)
+        # Encoding msg using md5 hash
+        msg = hashlib.md5(msg.encode())
+        # Update msg with key
+        msg.update(key.encode())
+        # Return as a str object
+        msg = msg.hexdigest()
         return msg
+        # In case of using only the 10 least bytes as the paper did, comment out previous line, and uncomment following one
+        # return msg[:10]
 
     def update_role(self): # Can be used in view change to update a replica's role
         self.role = Role.PRIMARY if self.id == self.current_view % NODE_TOTAL_NUMBER else Role.REPLICA
