@@ -41,7 +41,7 @@ class Client:
 
         class Namespace(socketio.ClientNamespace):
             def trigger_event(self, name, *args):
-                print(f"event={name}, payload={args}")
+                # print(f"event={name}, payload={args}")
                 if name in client.topics and client.topics[name]:
                     client.topics[name](*args)
 

@@ -86,7 +86,7 @@ class Replica:
         pass
 
     def on_client_message(self, msg):
-        print('on_client_message', msg)
+        # print('on_client_message', msg)
 
         if self.role == Role.PRIMARY:
             self.client_req_dict = self.validate_client_req(msg)
