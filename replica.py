@@ -221,7 +221,7 @@ class Replica:
                     self.current_phase = ConsensusPhase.IDLE
 
                     # Construct and broadcast the prepare message as well as appending it to log
-                    reply_msg = self.construct_reply('Request execution succeeded' if result else 'Request execution failed')
+                    reply_msg = self.construct_reply('Request execution successful' if result else 'Request execution failed')
                     # Append the reply message to reply history
                     self.append_reply_history(reply_msg)
                     self.broadcast_msg('reply', reply_msg)
