@@ -45,8 +45,10 @@ class Replica:
         self.state = State.READY
         self.timer = WaitTimer(self.init_view_change)
         self.requests = 0
+        self.role = Role.REPLICA
 
         self.update_role()
+        print('role', self.role)
 
         self.current_phase = ConsensusPhase.IDLE
         self.log = {}
@@ -200,6 +202,7 @@ class Replica:
         return True
 
     def broadcast_msg(self, topic, msg):
+        print('broadcast', topic, msg)
         self.mqtt_client.publish(MQTT_TOPIC_PREFIX + topic, msg)
 
     def initiate_log(self):
@@ -214,13 +217,15 @@ class Replica:
         self.reply_history[self.client_req_dict['c']]['t'] = self.client_req_dict['t']
         self.reply_history[self.client_req_dict['c']]['r'] = msg
 
+    # {"o": "", "t": "", "c": ""}
     def validate_client_req(self, msg) -> dict:
         try:
             msg = json.loads(msg)
             if not all (key in msg for key in ['o', 't', 'c']):
                 msg = {}
             return msg
-        except (json.decoder.JSONDecodeError, KeyError):
+        except (json.decoder.JSONDecodeError, KeyError) as e:
+            print('error', e)
             return {}
 
     def validate_proposal(self, msg) -> dict:
@@ -280,7 +285,7 @@ class Replica:
         # Encoding msg using md5 hash
         msg = hashlib.md5(msg.encode())
         # Update msg with key
-        msg.update(key.encode())
+        msg.update(str(key).encode())
         # Return as a str object
         msg = msg.hexdigest()
         return msg
