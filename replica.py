@@ -47,9 +47,6 @@ class Replica:
         self.requests = 0
         self.role = Role.REPLICA
 
-        self.update_role()
-        print('role', self.role)
-
         self.current_phase = ConsensusPhase.IDLE
         self.log = {}
         self.reply_history = {}
@@ -63,6 +60,10 @@ class Replica:
         self.mqtt_client.on_connect = self.on_connect
         self.mqtt_client.on_message = self.on_message
         self.mqtt_client.connect(MQTT_SERVER_ADDR, MQTT_SERVER_PORT)
+
+        self.update_role()
+        print('role', self.role)
+
         self.mqtt_client.loop_forever()
 
     def on_connect(self):
