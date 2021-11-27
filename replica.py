@@ -293,13 +293,18 @@ class Replica:
         # return msg[:10]
 
     def update_role(self): # Can be used in view change to update a replica's role
-        self.role = Role.PRIMARY if self.id == self.current_view % NODE_TOTAL_NUMBER else Role.REPLICA
+        leader_id = self.current_view % NODE_TOTAL_NUMBER
+        self.role = Role.PRIMARY if self.id == leader_id else Role.REPLICA
+        self.broadcast_msg('view_change', json.dumps({'leader_id': leader_id}))
+
 
     def init_view_change(self):
         if self.state == State.WAITING:
             self.state = State.CHANGING
             self.current_phase = ConsensusPhase.VIEWCHANGE
             # send view-change message
+            self.current_view += 1
+            self.update_role()
 
 
 if __name__ == '__main__':
