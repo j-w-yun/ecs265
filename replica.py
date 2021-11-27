@@ -6,7 +6,6 @@ from threading import Thread,Event,Timer
 
 # import paho.mqtt.client as mqtt
 import socket_client as mqtt
-print(mqtt)
 
 from global_const import *
 
@@ -61,8 +60,8 @@ class Replica:
         self.mqtt_client.on_message = self.on_message
         self.mqtt_client.connect(MQTT_SERVER_ADDR, MQTT_SERVER_PORT)
 
+        # Update role broadcasts leader ID
         self.update_role()
-        print('role', self.role)
 
         self.mqtt_client.loop_forever()
 
@@ -82,11 +81,44 @@ class Replica:
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'commit')
         self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'commit', self.on_commit_message)
 
+        # Misc features
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'reset_history')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'reset_history', self.on_reset_history)
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'trigger_view_change')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'trigger_view_change', self.on_trigger_view_change)
+
     def on_message(self, msg):
         pass
 
+    def on_trigger_view_change(self):
+        print('trigger view change')
+
+        self.on_reset_history()
+        self.current_view += 1
+        self.update_role()
+
+    def on_reset_history(self):
+        print('reset history')
+
+        # self.current_seq = 0
+        # self.current_view = 0
+        self.state = State.READY
+        self.timer = WaitTimer(self.init_view_change)
+        # self.requests = 0
+        self.role = Role.REPLICA
+
+        self.current_phase = ConsensusPhase.IDLE
+        self.log = {}
+        self.reply_history = {}
+
+        self.client_req = ''
+        self.client_req_digest = ''
+        self.client_req_dict ={}
+
+        self.update_role()
+
     def on_client_message(self, msg):
-        # print('on_client_message', msg)
+        print('on_client_message', msg)
 
         if self.role == Role.PRIMARY:
             self.client_req_dict = self.validate_client_req(msg)
@@ -189,7 +221,7 @@ class Replica:
                     self.current_phase = ConsensusPhase.IDLE
 
                     # Construct and broadcast the prepare message as well as appending it to log
-                    reply_msg = self.construct_reply('Request executed succeeded' if result else 'Request executed failed')
+                    reply_msg = self.construct_reply('Request execution succeeded' if result else 'Request execution failed')
                     # Append the reply message to reply history
                     self.append_reply_history(reply_msg)
                     self.broadcast_msg('reply', reply_msg)
@@ -297,6 +329,7 @@ class Replica:
         leader_id = self.current_view % NODE_TOTAL_NUMBER
         self.role = Role.PRIMARY if self.id == leader_id else Role.REPLICA
         self.broadcast_msg('view_change', json.dumps({'leader_id': leader_id}))
+        print('replica', self.id, 'role', self.role)
 
 
     def init_view_change(self):
@@ -309,6 +342,13 @@ class Replica:
 
 
 if __name__ == '__main__':
-    replica_id = int(sys.argv[1])
-    print('replica_id', replica_id)
-    primary = Replica(replica_id=replica_id)
+    if len(sys.argv) != 2:
+        print('Please provide an ID for the replica')
+        sys.exit(1)
+
+    try:
+        replica_id = int(sys.argv[1])
+        print('replica_id', replica_id)
+        primary = Replica(replica_id=replica_id)
+    except Exception as e:
+        print('error', e)

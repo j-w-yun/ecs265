@@ -8,7 +8,7 @@ MQTT_SERVER_ADDR = 'https://jaewan-yun.com'
 MQTT_SERVER_PORT = '5000'
 MQTT_TOPIC_PREFIX = ''
 
-NODE_TOTAL_NUMBER = 4
+NODE_TOTAL_NUMBER = 6
 FAULT_TOLERANCE = 1
 
 MSG_DIGEST_KEYS = ['i', 'n', 'v', 'd']
