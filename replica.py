@@ -334,8 +334,8 @@ class Replica:
 
     def init_view_change(self):
         if self.state == State.WAITING:
-            self.state = State.CHANGING
-            self.current_phase = ConsensusPhase.VIEWCHANGE
+            # self.state = State.CHANGING
+            # self.current_phase = ConsensusPhase.VIEWCHANGE
             # send view-change message
             self.current_view += 1
             self.update_role()
