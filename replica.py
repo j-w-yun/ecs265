@@ -193,7 +193,7 @@ class Replica:
             # Append prepare message to log
             self.log[self.current_seq]['prepare'][prepare_msg['i']] = msg
 
-            if len(self.log[self.current_seq]['prepare'].keys()) + self.role.value >= 2 * FAULT_TOLERANCE:
+            if len(self.log[self.current_seq]['prepare'].keys()) >= 2 * FAULT_TOLERANCE:
                 # Update consensus phase
                 self.current_phase = ConsensusPhase.COMMIT
 
