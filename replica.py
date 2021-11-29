@@ -207,7 +207,7 @@ class Replica:
         if self.state == State.CHANGING:
             return
         commit_msg = self.validate_msg(msg)
-        if commit_msg['i'] == self.current_view:
+        if commit_msg['i'] == self.current_view and self.id != self.current_view:
             self.timer.reset()
             self.timer.run()
         if commit_msg and self.current_phase == ConsensusPhase.COMMIT:
