@@ -49,6 +49,7 @@ class Replica:
         self.current_phase = ConsensusPhase.IDLE
         self.log = {}
         self.reply_history = {}
+        self.vc_history = {}
 
         self.client_req = ''
         self.client_req_digest = ''
@@ -84,18 +85,70 @@ class Replica:
         # Misc features
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'reset_history')
         self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'reset_history', self.on_reset_history)
-        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'trigger_view_change')
-        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'trigger_view_change', self.on_trigger_view_change)
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'view_change')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'view_change', self.on_view_change)
+self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'new_view')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'new_view', self.on_new_view)
 
     def on_message(self, msg):
         pass
 
-    def on_trigger_view_change(self):
-        print('trigger view change')
+    def on_view_change(self, msg):
+        print('view change request received')
 
-        self.on_reset_history()
-        self.current_view += 1
-        self.update_role()
+        try:
+            msg = json.loads(msg)
+            
+            # add vote to vc_history for view v
+            if msg['v'] not in self.vc_history:
+                self.vc_history[msg['v']] = {msg['i'] : msg}
+            else:
+                self.vc_history[msg['v']][msg[i]] = msg
+            
+            # check if any view has enough votes
+            for view,votes in self.vc_history.items():
+	            if seq % NODE_TOTAL_NUMBER == self.id and len(votes.keys()) >= 2 * FAULT_TOLERANCE:
+        	         msg = {}
+        	         msg['v'] = view
+        	         msg['V'] = votes
+        	         maxseq = 0
+        	         resend = "Empty"
+        	         for rep,repmsg in votes.items():
+        	             maxseq = max(maxseq,repmsg['n'])
+        	             if repmsg['P'] != "Empty":
+        	                 resend = repmsg['P']
+        	         msg['n'] = maxseq
+        	         msg['P'] = resend
+        	         self.vc_history = {} # cleared to avoid resending
+        	         
+                        self.broadcast_msg('new_view', json.dumps(msg))
+                 
+        except (json.decoder.JSONDecodeError, KeyError) as e:
+            print('error', e)
+            return {}
+    
+    def on_new_view(self,msg):
+    	print('new view established')
+    	
+    	try:
+            msg = json.loads(msg)
+            
+            if len(msg['V']) < 2 * FAULT_TOLERANCE:
+                return {}
+            self.state = State.READY
+            self.timer.cancel()
+            self.current_phase = ConsensusPhase.IDLE
+            
+            self.vc_history = {}
+            self.current_view = msg['v']
+            self.current_seq = msg['n']
+            
+            self.update_role()
+            if self.role == Role.PRIMARY and msg['P'] != 'Empty':
+                self.log[self.current_seq]['pre-prepare'][self.id] = msg['P']
+                self.broadcast_msg('pre-prepare', pre_prepare_msg)
+        except (json.decoder.JSONDecodeError, KeyError):
+            return {}
 
     def on_reset_history(self):
         print('reset history')
@@ -103,13 +156,13 @@ class Replica:
         # self.current_seq = 0
         # self.current_view = 0
         self.state = State.READY
-        self.timer = WaitTimer(self.init_view_change)
+        self.timer.cancel()
         # self.requests = 0
-        self.role = Role.REPLICA
 
         self.current_phase = ConsensusPhase.IDLE
         self.log = {}
         self.reply_history = {}
+        self.vc_history = {}
 
         self.client_req = ''
         self.client_req_digest = ''
@@ -328,17 +381,29 @@ class Replica:
     def update_role(self): # Can be used in view change to update a replica's role
         leader_id = self.current_view % NODE_TOTAL_NUMBER
         self.role = Role.PRIMARY if self.id == leader_id else Role.REPLICA
-        self.broadcast_msg('view_change', json.dumps({'leader_id': leader_id}))
         print('replica', self.id, 'role', self.role)
 
 
     def init_view_change(self):
-        if self.state == State.WAITING:
-            # self.state = State.CHANGING
-            # self.current_phase = ConsensusPhase.VIEWCHANGE
+        if self.state == State.WAITING || self.state == State.CHANGING:
+            self.state = State.CHANGING
+            self.current_phase = ConsensusPhase.VIEWCHANGE
+            self.current_view += 1 # current_view is iterated
+            
             # send view-change message
-            self.current_view += 1
-            self.update_role()
+            msg = {}
+            msg['v'] = self.current_view
+            msg['n'] = self.current_seq
+            # Log uncommitted requests
+            if self.current_seq in self.log and len(self.log[self.current_seq]['commit'].keys()) <= 2 * FAULT_TOLERANCE:
+                msg['P'] = self.log[self.current_seq]['pre-prepare'][self.current_view]
+            else:
+                msg['P'] = "Empty"
+            msg['i'] = self.id
+            
+            self.vc_history[self.current_view] = {self.id : msg}
+            self.broadcast_msg('view_change', json.dumps(msg))
+            self.timer.run() # resends view-change message with view + i + 1
 
 
 if __name__ == '__main__':
