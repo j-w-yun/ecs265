@@ -78,10 +78,10 @@ class Replica:
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'new_view')
         self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'new_view', self.on_new_view_message)
 
-    def on_message(self, client, usr_data, msg):
+    def on_message(self):
         pass
 
-    def on_client_message(self, client, usr_data, msg):
+    def on_client_message(self, msg):
         # print('on_client_message', msg)
 
         try:
@@ -117,7 +117,7 @@ class Replica:
 
             self.broadcast_msg('pre-prepare', pre_prepare_msg)
 
-    def on_pre_prepare_message(self, client, usr_data, msg):
+    def on_pre_prepare_message(self, msg):
         # print('on_pre_prepare_message', msg)
 
         if self.role == Role.REPLICA:
@@ -147,7 +147,7 @@ class Replica:
                 prepare_msg = self.construct_msg()
                 self.broadcast_msg('prepare', prepare_msg)
 
-    def on_prepare_message(self, client, usr_data, msg):
+    def on_prepare_message(self, msg):
         # print('on_prepare_message', msg)
 
         prepare_msg = self.validate_msg(msg)
@@ -163,7 +163,7 @@ class Replica:
                 commit_msg = self.construct_msg()
                 self.broadcast_msg('commit', commit_msg)
 
-    def on_commit_message(self, client, usr_data, msg):
+    def on_commit_message(self, msg):
         # print('on_commit_message', msg)
 
         commit_msg = self.validate_msg(msg)
@@ -191,11 +191,11 @@ class Replica:
                     else:
                         self.current_phase = ConsensusPhase.WAIT # Still have requests in waitlist
                         if self.role == Role.PRIMARY:
-                            self.on_client_message(client, usr_data, '')
+                            self.on_client_message('')
                         else: # Replica timer restart
                             self.timer.start()
 
-    def on_view_change_message(self, client, usr_data, msg):
+    def on_view_change_message(self, msg):
         # print('view change request received')
 
         # Validate view change message and checking if current node is next primary
@@ -229,7 +229,7 @@ class Replica:
                 self.vc_history = {} # cleared to avoid resending
                 self.current_phase = ConsensusPhase.PREPARE
 
-    def on_new_view_message(self, client, usr_data, msg):
+    def on_new_view_message(self, msg):
         # print('new view established')
 
         new_view_msg = self.validate_new_view_msg(msg)
