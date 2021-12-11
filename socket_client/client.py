@@ -57,5 +57,6 @@ class Client:
 
     def loop_forever(self):
         while True:
-            time.sleep(1)
+            pass
+            # time.sleep(1)
             # print('loop')

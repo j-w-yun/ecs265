@@ -34,11 +34,9 @@ class Replica:
         self.id = replica_id
         self.current_seq = current_seq
         self.current_view = current_view
+        self.timeout = timeout
         self.timer = WaitTimer(timeout, self.init_view_change)
         self.role = Role.REPLICA
-
-        # Update role 
-        self.update_role()
 
         self.current_phase = ConsensusPhase.IDLE
         self.request_waitlist = []
@@ -55,9 +53,13 @@ class Replica:
         self.mqtt_client.on_connect = self.on_connect
         self.mqtt_client.on_message = self.on_message
         self.mqtt_client.connect(MQTT_SERVER_ADDR, MQTT_SERVER_PORT)
+
+        # Update role 
+        self.update_role()
+
         self.mqtt_client.loop_forever()
 
-    def on_connect(self, client, userdata, flag, rc):
+    def on_connect(self):
         print("Connected to MQTT server.")
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'terminal')
         self.broadcast_msg('terminal', '{} with id {} has connected to the server.'.format('Primary' if self.role == Role.PRIMARY else 'Replica', self.id))
@@ -73,22 +75,55 @@ class Replica:
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'commit')
         self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'commit', self.on_commit_message)
 
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'reset_history')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'reset_history', self.on_reset_history)
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'view_change')
-        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'view_change', self.on_view_change_message)
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'view_change', self.on_trigger_view_change)
+        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'view_change_auto')
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'view_change_auto', self.on_view_change_message)
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'new_view')
         self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'new_view', self.on_new_view_message)
 
     def on_message(self):
         pass
 
-    def on_client_message(self, msg):
-        # print('on_client_message', msg)
+    def on_trigger_view_change(self):
+        print('trigger view change')
 
+        self.on_reset_history()
+        self.current_view += 1
+        self.update_role()
+
+    def on_reset_history(self):
+        print('reset history')
+
+        self.current_seq = 0
+        self.current_view = 0
         try:
-            if self.validate_client_req(msg): # Avoid triggering view change when client request is corrupted
-                self.request_waitlist.append(msg)
-        except:
+            self.timer.cancel()
+        except AttributeError:
             pass
+        self.timer = WaitTimer(self.timeout, self.init_view_change)
+        self.request_waitlist = []
+
+        # self.requests = 0
+        self.role = Role.REPLICA
+
+        self.current_phase = ConsensusPhase.IDLE
+        self.log = {}
+        self.reply_history = {}
+
+        self.client_req = ''
+        self.client_req_digest = ''
+        self.client_req_dict ={}
+
+        self.update_role()
+
+    def on_client_message(self, msg):
+        print('on_client_message', msg)
+
+        if self.validate_client_req(msg): # Avoid triggering view change when client request is corrupted
+            self.request_waitlist.append(msg)
 
         if self.current_phase == ConsensusPhase.IDLE:
             self.current_phase = ConsensusPhase.WAIT
@@ -118,7 +153,7 @@ class Replica:
             self.broadcast_msg('pre-prepare', pre_prepare_msg)
 
     def on_pre_prepare_message(self, msg):
-        # print('on_pre_prepare_message', msg)
+        print('on_pre_prepare_message', msg)
 
         if self.role == Role.REPLICA:
             pre_prepare_msg = self.validate_proposal(msg)
@@ -148,7 +183,7 @@ class Replica:
                 self.broadcast_msg('prepare', prepare_msg)
 
     def on_prepare_message(self, msg):
-        # print('on_prepare_message', msg)
+        print('on_prepare_message', msg)
 
         prepare_msg = self.validate_msg(msg)
         if prepare_msg and self.current_phase == ConsensusPhase.PREPARE:
@@ -164,7 +199,7 @@ class Replica:
                 self.broadcast_msg('commit', commit_msg)
 
     def on_commit_message(self, msg):
-        # print('on_commit_message', msg)
+        print('on_commit_message', msg)
 
         commit_msg = self.validate_msg(msg)
         if commit_msg and self.current_phase == ConsensusPhase.COMMIT:
@@ -185,7 +220,10 @@ class Replica:
 
                     # Update consensus phase
                     if self.role == Role.REPLICA: # Current request committed, reset timer
+                        try:
                             self.timer.cancel()
+                        except AttributeError:
+                            pass
                     if len(self.request_waitlist) == 0:
                         self.current_phase = ConsensusPhase.IDLE # No request in waitlist, timer stop
                     else:
@@ -196,7 +234,7 @@ class Replica:
                             self.timer.start()
 
     def on_view_change_message(self, msg):
-        # print('view change request received')
+        print('view change request received')
 
         # Validate view change message and checking if current node is next primary
         view_change_msg = self.validate_view_change_msg(msg)
@@ -209,7 +247,10 @@ class Replica:
                 self.current_phase = ConsensusPhase.VIEW_CHANGE
                 self.current_view = view_change_msg['v']
                 self.update_role() # Changed to primary, cancel timer
-                self.timer.cancel()
+                try:
+                    self.timer.cancel()
+                except AttributeError:
+                    pass
 
                 # Create new view message and append pre-prepare message to log
                 new_view_msg, pre_prepare_msg = self.construct_new_view_msg()
@@ -230,12 +271,15 @@ class Replica:
                 self.current_phase = ConsensusPhase.PREPARE
 
     def on_new_view_message(self, msg):
-        # print('new view established')
+        print('new view established')
 
         new_view_msg = self.validate_new_view_msg(msg)
         if new_view_msg and (new_view_msg['v'] % NODE_TOTAL_NUMBER) != self.id:
 
-            self.timer.cancel() # Stop timer as entering new view
+            try:
+                self.timer.cancel() # Stop timer as entering new view
+            except AttributeError:
+                pass
 
             self.vc_history = {}
             self.current_view = new_view_msg['v']
@@ -271,12 +315,15 @@ class Replica:
         self.current_view += 1 # current_view is iterated
 
         # Start view change timer
-        self.timer.cancel()
+        try:
+            self.timer.cancel()
+        except AttributeError:
+            pass
         self.timer.start()
         
         # send view-change message
         msg = self.construct_view_change_msg()
-        self.broadcast_msg('view_change', msg)
+        self.broadcast_msg('view_change_auto', msg)
 
     def broadcast_msg(self, topic, msg):
         # print(f'Topic: {topic}')
@@ -457,6 +504,7 @@ class Replica:
     def update_role(self): # Can be used in view change to update a replica's role
         leader_id = self.current_view % NODE_TOTAL_NUMBER
         self.role = Role.PRIMARY if self.id == leader_id else Role.REPLICA
+        self.broadcast_msg('view_change', json.dumps({'leader_id': leader_id}))
         print('replica', self.id, 'role', self.role)
 
 
