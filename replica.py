@@ -78,9 +78,7 @@ class Replica:
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'reset_history')
         self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'reset_history', self.on_reset_history)
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'view_change')
-        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'view_change', self.on_trigger_view_change)
-        self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'view_change_auto')
-        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'view_change_auto', self.on_view_change_message)
+        self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'view_change', self.on_view_change_message)
         self.mqtt_client.subscribe(MQTT_TOPIC_PREFIX + 'new_view')
         self.mqtt_client.message_callback_add(MQTT_TOPIC_PREFIX + 'new_view', self.on_new_view_message)
 
@@ -323,7 +321,7 @@ class Replica:
         
         # send view-change message
         msg = self.construct_view_change_msg()
-        self.broadcast_msg('view_change_auto', msg)
+        self.broadcast_msg('view_change', msg)
 
     def broadcast_msg(self, topic, msg):
         # print(f'Topic: {topic}')
@@ -504,7 +502,7 @@ class Replica:
     def update_role(self): # Can be used in view change to update a replica's role
         leader_id = self.current_view % NODE_TOTAL_NUMBER
         self.role = Role.PRIMARY if self.id == leader_id else Role.REPLICA
-        self.broadcast_msg('view_change', json.dumps({'leader_id': leader_id}))
+        self.broadcast_msg('view_change_leader', json.dumps({'leader_id': leader_id}))
         print('replica', self.id, 'role', self.role)
 
 
